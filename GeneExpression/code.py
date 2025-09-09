@@ -1,49 +1,111 @@
 import numpy as np
 
-def fitness_function(x):
-    return sum(x**2)
+NUM_BEAMS = 5
+GENES_PER_BEAM = 2
+GENE_LENGTH = NUM_BEAMS * GENES_PER_BEAM
 
-def initialize_population(pop_size, gene_length, bounds):
-    lb, ub = bounds
-    return lb + (ub - lb) * np.random.rand(pop_size, gene_length)
+POP_SIZE = 50
+NUM_GENERATIONS = 100
+MUTATION_RATE = 0.1
+CROSSOVER_RATE = 0.7
 
-def selection(pop, fitness):
-    idx = np.argsort(fitness)
-    return pop[idx[:len(pop)//2]]
+material_cost = [10, 6, 4]
+material_strength = [20, 10, 5]
 
-def crossover(parents, pop_size):
-    offspring = []
-    while len(offspring) < pop_size:
-        p1, p2 = parents[np.random.randint(len(parents))], parents[np.random.randint(len(parents))]
-        point = np.random.randint(1, len(p1))
-        child = np.concatenate([p1[:point], p2[point:]])
-        offspring.append(child)
-    return np.array(offspring)
+REQUIRED_STRENGTH = 100
+PENALTY = 1e6
 
-def mutation(pop, mutation_rate, bounds):
-    lb, ub = bounds
-    for i in range(len(pop)):
-        if np.random.rand() < mutation_rate:
-            g = np.random.randint(len(pop[i]))
-            pop[i][g] = lb + (ub - lb) * np.random.rand()
-    return pop
+def init_population():
+    population = []
+    for _ in range(POP_SIZE):
+        individual = []
+        for _ in range(NUM_BEAMS):
+            material = np.random.randint(0, 3)
+            thickness = np.random.randint(1, 11)
+            individual.extend([material, thickness])
+        population.append(individual)
+    return np.array(population)
 
-def gene_expression(pop):
-    return pop  
+def fitness_function(individual):
+    total_cost = 0
+    total_strength = 0
+    for i in range(NUM_BEAMS):
+        material = int(individual[2*i])
+        thickness = int(individual[2*i + 1])
+        cost = material_cost[material] * thickness
+        strength = material_strength[material] * thickness
+        total_cost += cost
+        total_strength += strength
+    if total_strength < REQUIRED_STRENGTH:
+        return -PENALTY
+    else:
+        return total_strength / total_cost
 
-def gea(fitness_function, pop_size=10, gene_length=5, generations=5, mutation_rate=0.1, bounds=(-10,10)):
-    pop = initialize_population(pop_size, gene_length, bounds)
-    best_vals = []
-    for g in range(1, generations+1):
-        fitness = np.array([fitness_function(ind) for ind in pop])
-        best_idx = np.argmin(fitness)
-        best_vals.append(fitness[best_idx])
-        print(f"Generation {g} | Best fitness: {fitness[best_idx]:.6f}")
-        parents = selection(pop, fitness)
-        offspring = crossover(parents, pop_size)
-        offspring = mutation(offspring, mutation_rate, bounds)
-        pop = gene_expression(offspring)
-    print("Best fitness value:", min(best_vals))
+def selection(population, fitnesses, k=3):
+    selected = []
+    for _ in range(POP_SIZE):
+        aspirants_idx = np.random.choice(range(POP_SIZE), k)
+        aspirants_fitness = fitnesses[aspirants_idx]
+        winner_idx = aspirants_idx[np.argmax(aspirants_fitness)]
+        selected.append(population[winner_idx])
+    return np.array(selected)
+
+def crossover(parent1, parent2):
+    if np.random.rand() > CROSSOVER_RATE:
+        return parent1.copy(), parent2.copy()
+    point = np.random.randint(1, GENE_LENGTH - 1)
+    child1 = np.concatenate([parent1[:point], parent2[point:]])
+    child2 = np.concatenate([parent2[:point], parent1[point:]])
+    return child1, child2
+
+def mutate(individual):
+    for i in range(0, GENE_LENGTH, 2):
+        if np.random.rand() < MUTATION_RATE:
+            individual[i] = np.random.randint(0, 3)
+        if np.random.rand() < MUTATION_RATE:
+            individual[i+1] = np.random.randint(1, 11)
+    return individual
+
+def run_gea():
+    population = init_population()
+    best_solution = None
+    best_fitness = -np.inf
+
+    for gen in range(NUM_GENERATIONS):
+        fitnesses = np.array([fitness_function(ind) for ind in population])
+        max_idx = np.argmax(fitnesses)
+        if fitnesses[max_idx] > best_fitness:
+            best_fitness = fitnesses[max_idx]
+            best_solution = population[max_idx].copy()
+
+        selected = selection(population, fitnesses)
+        next_population = []
+        for i in range(0, POP_SIZE, 2):
+            p1 = selected[i]
+            p2 = selected[i+1 if i+1 < POP_SIZE else 0]
+            c1, c2 = crossover(p1, p2)
+            next_population.append(mutate(c1))
+            next_population.append(mutate(c2))
+        population = np.array(next_population)
+
+        if gen % 20 == 0 or gen == NUM_GENERATIONS - 1:
+            print(f"Gen {gen}: Best fitness (strength/cost): {best_fitness:.4f}")
+
+    print("\nBest bridge design (material, thickness per beam):")
+    total_cost = 0
+    total_strength = 0
+    for i in range(NUM_BEAMS):
+        material = int(best_solution[2*i])
+        thickness = int(best_solution[2*i + 1])
+        cost = material_cost[material] * thickness
+        strength = material_strength[material] * thickness
+        total_cost += cost
+        total_strength += strength
+        material_name = ["Steel", "Aluminum", "Concrete"][material]
+        print(f" Beam {i+1}: Material={material_name}, Thickness={thickness}, Cost={cost}, Strength={strength}")
+
+    print(f"Total cost: {total_cost}")
+    print(f"Total strength: {total_strength} (Required: {REQUIRED_STRENGTH})")
 
 if __name__ == "__main__":
-    gea(fitness_function, pop_size=10, gene_length=5, generations=5, mutation_rate=0.2, bounds=(-10,10))
+    run_gea()
